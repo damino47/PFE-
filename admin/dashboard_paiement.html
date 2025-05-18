@@ -1,0 +1,155 @@
+
+        <!DOCTYPE html>
+        <html lang="fr">
+        <head>
+            <meta charset="UTF-8">
+            <title>Paiement - Aéroport Tunis-Carthage</title>
+            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+            <style>
+                body {
+                    background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+                    min-height: 100vh;
+                    margin: 0;
+                    padding: 0.5rem;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                .container {
+                    max-width: 1200px;
+                    padding: 1rem;
+                }
+                .display-4 {
+                    font-size: 2.5rem;
+                    font-weight: 700;
+                    color: #fff;
+                    text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+                    margin: 0;
+                    line-height: 1.2;
+                }
+                .card {
+                    border: none;
+                    border-radius: 10px;
+                    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+                    background: rgba(255, 255, 255, 0.9);
+                    margin-bottom: 0.5rem;
+                }
+                .receipt-header {
+                    text-align: center;
+                    padding: 1rem;
+                    border-bottom: 2px dashed #dee2e6;
+                }
+                .receipt-body {
+                    padding: 1.5rem;
+                }
+                .receipt-footer {
+                    text-align: center;
+                    padding: 1rem;
+                    border-top: 2px dashed #dee2e6;
+                }
+                .info-row {
+                    display: flex;
+                    justify-content: space-between;
+                    margin-bottom: 0.8rem;
+                    font-size: 1.2rem;
+                }
+                .amount {
+                    font-size: 1.8rem;
+                    font-weight: bold;
+                    color: #1e3c72;
+                }
+                .receipt-number {
+                    font-size: 1rem;
+                    color: #6c757d;
+                }
+                .timestamp {
+                    font-size: 1rem;
+                    color: #6c757d;
+                }
+                .payment-status {
+                    font-size: 1.4rem;
+                    font-weight: bold;
+                    text-align: center;
+                    padding: 1rem;
+                    margin: 1rem 0;
+                    border-radius: 5px;
+                }
+                .status-pending {
+                    background-color: #fff3cd;
+                    color: #856404;
+                }
+                .status-completed {
+                    background-color: #d4edda;
+                    color: #155724;
+                }
+                .monnaie-info {
+                    font-size: 1.4rem;
+                    text-align: center;
+                    margin-top: 1rem;
+                    padding: 0.5rem;
+                    background-color: #e9ecef;
+                    border-radius: 5px;
+                }
+                .airport-logo {
+                    height: 60px;
+                    margin-bottom: 0.5rem;
+                }
+                .place-info {
+                    background-color: #e9ecef;
+                    padding: 0.5rem;
+                    border-radius: 5px;
+                    margin-bottom: 1rem;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="text-center mb-3">
+                    <img src="OACA.jpg" alt="Logo" class="airport-logo">
+                    <h1 class="display-4">Aéroport Tunis-Carthage</h1>
+                </div>
+                <div class="card shadow">
+                    <div class="receipt-header">
+                        <h2>Reçu de Paiement</h2>
+                        <div class="receipt-number">N° RECU-20250515-37ccc8c1</div>
+                        <div class="timestamp">15/05/2025 12:25</div>
+                    </div>
+                    <div class="receipt-body">
+                        <div class="place-info">
+                            <div class="info-row">
+                                <span>Place de stationnement :</span>
+                                <span>N/A </span>
+                            </div>
+                        </div>
+                        <div class="info-row">
+                            <span>Véhicule :</span>
+                            <span>1234 تونس 56</span>
+                        </div>
+                        <div class="info-row">
+                            <span>Entrée :</span>
+                            <span></span>
+                        </div>
+                        <div class="info-row">
+                            <span>Durée de stationnement :</span>
+                            <span>1.35 minutes</span>
+                        </div>
+                        <div class="info-row">
+                            <span>Montant dû :</span>
+                            <span class="amount">3.00 DT</span>
+                        </div>
+                        
+                        
+                        <div class="payment-status status-pending">
+                            ⏳ En attente du paiement
+                        </div>
+                        
+                    </div>
+                    <div class="receipt-footer">
+                        <p>Merci de votre visite</p>
+                        <small>OACA 2025</small>
+                    </div>
+                </div>
+            </div>
+        </body>
+        </html>
+        
