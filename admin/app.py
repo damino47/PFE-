@@ -25,16 +25,20 @@ import re
 yolo_model = YOLO('yolov8n.pt')
 reader = easyocr.Reader(['en'])
 
+# Flask application setup
 app = Flask(__name__)
 app.config['SECRET_KEY'] = SECRET_KEY
+
+# User authentication setup
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
 # Connexion à la base de données
+# la config de la base de données dans admin/config.py
 def get_db_connection():
     return mysql.connector.connect(**DATABASE_CONFIG)
-
+# definition de la class user
 class User(UserMixin):
     def __init__(self, id, username, role=None):
         self.id = id
@@ -43,6 +47,7 @@ class User(UserMixin):
         self.username = username
         self.role = role
 
+# Load user from database when logging in
 @login_manager.user_loader
 def load_user(user_id):
     conn = get_db_connection()
@@ -56,6 +61,7 @@ def load_user(user_id):
         return User(user['id'], user['username'], user['role'])
     return None
 
+# Route for the homepage (requires login)
 @app.route('/')
 @login_required
 def index():
@@ -63,6 +69,7 @@ def index():
         return redirect(url_for('login'))
     return redirect(url_for('historique'))
 
+# Route for viewing users (admin-only access)
 @app.route('/users')
 @login_required
 def users():
@@ -70,17 +77,20 @@ def users():
         return redirect(url_for('index'))
     return render_template('users.html')
 
+# Route for viewing revenue reports
 @app.route('/recettes')
 @login_required
 def recettes():
     return render_template('recettes.html')
 
+# Login route (handles both GET and POST requests)
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
-        
+
+        # Connect to the database and verify user credentials
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute('SELECT id, username, password, role FROM users WHERE username = %s', (username,))
@@ -89,18 +99,20 @@ def login():
         conn.close()
 
         if user and check_password_hash(user['password'], password):
+            # If credentials are valid, log in the user
             user_obj = User(user['id'], user['username'], user['role'])
             login_user(user_obj)
-            return redirect(url_for('index'))
+            return redirect(url_for('index')) # Redirect to homepage after login
         
         flash('Invalid username or password')
     return render_template('login.html')
-
+    
+# Handles user logout
 @app.route('/logout')
 @login_required
 def logout():
-    logout_user()
-    return redirect(url_for('login'))
+    logout_user() # Logs out the current user
+    return redirect(url_for('login')) # Redirects to login page
 
 @app.route('/api/places')
 @login_required
@@ -157,7 +169,7 @@ def get_parking_status():
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     
-    # Récupérer toutes les places de parking avec leur statut
+    # Récupérer toutes les places de parking avec leur status
     cursor.execute('''
         SELECT 
             p.numero,
