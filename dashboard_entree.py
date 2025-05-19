@@ -303,6 +303,37 @@ class ParkingManager:
                 print("Fermeture de la connexion à la base de données après la recherche de place disponible.")
                 conn.close()
     
+    def update_place_status(self, numero, occupied):
+        """
+        Met à jour le statut d'une place de parking dans la base de données.
+        :param numero: Numéro de la place (int)
+        :param occupied: 1 si occupée, 0 si libre (int)
+        """
+        try:
+            print(f"Mise à jour du statut de la place {numero} à {'occupé' if occupied else 'libre'}...")
+            conn = get_db_connection()
+            if not conn:
+                print("Erreur : Connexion à la base de données échouée")
+                return False
+
+            cursor = conn.cursor()
+            query = """
+                UPDATE places
+                SET occupied = %s, last_update = NOW()
+                WHERE numero = %s
+            """
+            cursor.execute(query, (occupied, numero))
+            conn.commit()
+            print(f"Statut de la place {numero} mis à jour avec succès.")
+            return True
+        except Exception as e:
+            print(f"Erreur lors de la mise à jour du statut de la place : {e}")
+            return False
+        finally:
+            if cursor:
+                cursor.close()
+            if conn and conn.is_connected():
+                conn.close()
         
 def generer_dashboard_entree(plaque, place, description, date_entree):
     try:
