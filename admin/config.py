@@ -36,3 +36,36 @@ EQUIPMENT = {
     'barriere_sortie': {'id': 4, 'name': 'Barrière Sortie'},
     'unite_paiement': {'id': 5, 'name': 'Unité de Paiement'}
 }
+#ajoutez les noms des tables utilisées pour stocker les informations.
+# Noms des tables de la base de données
+TABLES = {
+    'vehicules': 'vehicule_en_stationnement',
+    'places': 'places'
+}
+#ajoutez les colonnes utilises pour stocker les informations.
+# Colonnes clés pour les tables
+COLUMNS = {
+    'vehicules_en_stationnement': {
+        'id': 'id',
+        'plaque': 'plaque',
+        'place': 'place',
+        'temps_entree': 'temps_entree',
+        'temps_sortie': 'temps_sortie',
+        'status': 'status'
+    }
+}
+# Statuts des véhicules
+VEHICLE_STATUS = {
+    'en_stationnement': 'en_stationnement',
+    'en_attente_paiement': 'en_attente_paiement',
+    'sorti': 'sorti'
+}
+#Ajoutez une configuration pour les statuts des places de parking (par exemple, libre ou occupée).
+# Statuts des places de parking
+PLACE_STATUS = {
+    'libre': 'libre',
+    'occupee': 'occupée'
+}
+#Ajoutez un format de date pour uniformiser l'enregistrement des dates dans la base de données.
+# Format de date pour la base de données
+DATE_FORMAT = '%Y-%m-%d %H:%M:%S'

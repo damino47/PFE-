@@ -1,6 +1,7 @@
+from admin.config import DATABASE_CONFIG, COLUMNS, VEHICLE_STATUS, DATE_FORMAT
 from datetime import datetime
+import mysql.connector
 import os
-import sqlite3
 import time
 import threading
 import keyboard
@@ -10,72 +11,43 @@ from dashboard_paiement import traiter_paiement_especes
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def init_db():
-    conn = sqlite3.connect('parking.db')
-    cursor = conn.cursor()
-    
-    # Lire et exécuter le script SQL d'initialisation
-    sql_path = os.path.join(SCRIPT_DIR, 'admin', 'init_db.sql')
     try:
-        with open(sql_path, 'r', encoding='utf-8') as f:
-            sql_script = f.read()
-            cursor.executescript(sql_script)
+        # Connexion à la base de données MySQL
+        conn = mysql.connector.connect(
+            host='localhost',
+            user='root',
+            password='',  # Mot de passe par défaut de XAMPP est vide
+            database='parking_db',
+            port=3306  # Port par défaut de MySQL dans XAMPP
+        )
         
-        conn.commit()
-        print("Base de données initialisée avec succès")
-    except Exception as e:
-        print(f"Erreur lors de l'initialisation de la base de données : {str(e)}")
-        print("Création des tables directement...")
-        
-        # Créer les tables directement si le fichier SQL n'est pas trouvé
-        cursor.executescript("""
-        -- Table pour l'historique des stationnements
-        CREATE TABLE IF NOT EXISTS historique_stationnement (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            plaque TEXT NOT NULL,
-            place TEXT NOT NULL,
-            temps_entree TIMESTAMP NOT NULL,
-            temps_sortie TIMESTAMP NOT NULL,
-            duree_minutes REAL NOT NULL,
-            montant REAL NOT NULL,
-            direction TEXT NOT NULL,
-            status_paiement TEXT DEFAULT 'en_attente'
-        );
-
-        -- Table pour les véhicules en stationnement
-        CREATE TABLE IF NOT EXISTS vehicules_en_stationnement (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            plaque TEXT NOT NULL,
-            place TEXT NOT NULL,
-            temps_entree TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            temps_sortie TIMESTAMP,
-            status TEXT DEFAULT 'en_stationnement'
-        );
-
-        -- Table pour les paiements
-        CREATE TABLE IF NOT EXISTS paiements (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            historique_id INTEGER,
-            montant_paye REAL NOT NULL,
-            montant_change REAL NOT NULL,
-            date_paiement TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (historique_id) REFERENCES historique_stationnement(id)
-        );
-        """)
-        
-        conn.commit()
-        print("Tables créées avec succès")
-    
+        if conn.is_connected():
+            cursor = conn.cursor()
+            print("Connexion réussie à la base de données MySQL")
+            
+            # Lire et exécuter le script SQL d'initialisation
+            sql_path = os.path.join(SCRIPT_DIR, 'admin', 'init_db.sql')
+            try:
+                with open(sql_path, 'r', encoding='utf-8') as f:
+                    sql_script = f.read()
+                    for statement in sql_script.split(';'):
+                        if statement.strip():
+                            cursor.execute(statement)
+                
+                conn.commit()
+                print("Base de données initialisée avec succès")
+            except Exception as e:
+                print(f"Erreur lors de l'exécution du script SQL : {str(e)}")
+            finally:
+                cursor.close()
+    except mysql.connector.Error as e:
+        print(f"Erreur de connexion à MySQL : {str(e)}")
     finally:
-        conn.close()
+        if 'conn' in locals() and conn.is_connected():
+            conn.close()
+            print("Connexion à la base de données MySQL fermée")
 
-def calculer_montant(duree_minutes):
-    # Gratuit si ≤ 1 minute
-    if duree_minutes <= 1:
-        return 0
-    
-    # Au-delà d'une minute, 2 DT par minute
-    minutes_payantes = int(duree_minutes - 1)  # On soustrait la première minute gratuite
-    return minutes_payantes * 2
+
 
 def generer_dashboard_sortie(plaque, temps_entree, temps_sortie, place, duree_minutes):
     montant = calculer_montant(duree_minutes)
@@ -232,126 +204,175 @@ def generer_dashboard_sortie(plaque, temps_entree, temps_sortie, place, duree_mi
         f.write(html)
     
     os.startfile("dashboard_sortie.html")
-    return montant  # Retourner le montant pour utilisation ultérieure
+    # Attendre 10 secondes avant d'afficher l'interface de paiement
+    time.sleep(10)
+    
+    # Appeler l'interface de paiement
+    generer_interface_paiement(plaque, temps_entree, temps_sortie, place, duree_minutes, montant)
 
 def enregistrer_sortie(vehicule_id, plaque, place, temps_entree):
-    conn = sqlite3.connect('parking.db')
-    cursor = conn.cursor()
+    try:
+        # Connexion à la base de données MySQL
+        conn = mysql.connector.connect(
+            host='localhost',
+            user='root',
+            password='',  # Mot de passe par défaut de XAMPP est vide
+            database='parking_db',
+            port=3306  # Port par défaut de MySQL dans XAMPP
+        )
+        cursor = conn.cursor()
+
+        # Calculer le temps de sortie
+        temps_sortie = datetime.now()
+
+        # Calculer la durée de stationnement en minutes
+        duree_minutes = (temps_sortie - temps_entree).total_seconds() / 60
+
+        # Calculer le montant à payer
+        if duree_minutes <= 1:
+            montant = 0  # Gratuit pour 1 minute ou moins
+            direction = "A"  # Voie de sortie gratuite
+        else:
+            minutes_payantes = int(duree_minutes - 1)  # Soustraire la première minute gratuite
+            montant = minutes_payantes * 2  # 2 DT par minute
+            direction = "B"  # Voie de sortie payante
+
+        # Enregistrer dans l'historique
+        cursor.execute('''
+        INSERT INTO historique_stationnement 
+        (plaque, place, temps_entree, temps_sortie, duree_minutes, montant, direction, status_paiement)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        ''', (plaque, place, temps_entree, temps_sortie, duree_minutes, montant, direction, 'en_attente'))
+
+        # Mettre à jour le statut dans vehicules_en_stationnement
+        cursor.execute('''
+        UPDATE vehicules_en_stationnement
+        SET temps_sortie = %s, status = 'en_attente_paiement'
+        WHERE id = %s
+        ''', (temps_sortie, vehicule_id))
+
+        # Valider les modifications
+        conn.commit()
+
+        # Générer le tableau de bord de sortie
+        generer_dashboard_sortie(plaque, temps_entree, temps_sortie, place, duree_minutes)
+
+        # Afficher les informations de sortie
+        print(f"Sortie enregistrée pour le véhicule {plaque} :")
+        print(f" - Place : {place}")
+        print(f" - Temps d'entrée : {temps_entree}")
+        print(f" - Temps de sortie : {temps_sortie}")
+        print(f" - Durée : {duree_minutes:.1f} minutes")
+        print(f" - Montant à payer : {montant:.2f} DT")
+        print(f" - Voie de sortie : {direction}")
+
+        return duree_minutes, montant
+
+    except mysql.connector.Error as e:
+        print(f"Erreur lors de l'enregistrement de la sortie : {str(e)}")
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+        if 'conn' in locals() and conn.is_connected():
+            conn.close()
     
-    temps_sortie = datetime.now()
-    duree_minutes = (temps_sortie - temps_entree).total_seconds() / 60
-    montant = calculer_montant(duree_minutes)
-    direction = "A" if duree_minutes <= 1 else "B"
-    
-    # Enregistrer dans l'historique
-    cursor.execute('''
-    INSERT INTO historique_stationnement 
-    (plaque, place, temps_entree, temps_sortie, duree_minutes, montant, direction, status_paiement)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (plaque, place, temps_entree, temps_sortie, duree_minutes, montant, direction, 'en_attente'))
-    
-    # Mettre à jour le statut dans vehicules_en_stationnement
-    cursor.execute('''
-    UPDATE vehicules_en_stationnement
-    SET temps_sortie = ?, status = 'en_attente_paiement'
-    WHERE id = ?
-    ''', (temps_sortie, vehicule_id))
-    
-    conn.commit()
-    conn.close()
-    
-    # Générer le dashboard de sortie
-    generer_dashboard_sortie(plaque, temps_entree, temps_sortie, place, duree_minutes)
-    
-    return duree_minutes, montant
+
+ 
 
 def traiter_sortie():
-    conn = sqlite3.connect('parking.db')
-    cursor = conn.cursor()
-    
-    # Rechercher le dernier véhicule en stationnement
-    cursor.execute('''
-    SELECT id, plaque, place, temps_entree 
-    FROM vehicules_en_stationnement 
-    WHERE status = 'en_stationnement'
-    ORDER BY temps_entree DESC
-    LIMIT 1
-    ''')
-    
-    vehicule = cursor.fetchone()
-    conn.close()
-    
-    if vehicule:
-        vehicule_id, plaque, place, temps_entree = vehicule
-        print(f"\nTraitement de la sortie pour le véhicule :")
-        print(f"ID : {vehicule_id}")
-        print(f"Plaque : {plaque}")
-        print(f"Place : {place}")
-        print(f"Heure d'entrée : {temps_entree}")
-        
-        temps_entree = datetime.strptime(temps_entree, '%Y-%m-%d %H:%M:%S.%f')
-        
-        # Enregistrer la sortie
-        duree_minutes, montant = enregistrer_sortie(
-            vehicule_id, plaque, place, temps_entree
+    try:
+        # Connexion à la base de données MySQL
+        conn = mysql.connector.connect(
+            host='localhost',
+            user='root',
+            password='',  # Mot de passe par défaut de XAMPP est vide
+            database='parking_db',
+            port=3306  # Port par défaut de MySQL dans XAMPP
         )
-        
-        print(f"\nSortie enregistrée :")
-        print(f"Heure de sortie : {temps_sortie}")
-        print(f"Durée : {duree_minutes:.1f} minutes")
-        print(f"Montant : {montant:.2f} DT")
-        
-        # Si le stationnement est payant (> 1 minute)
-        if duree_minutes > 1:
-            print(f"\nTraitement du paiement :")
-            print(f"Plaque : {plaque}")
-            print(f"Durée : {duree_minutes:.1f} minutes")
-            print(f"Montant dû : {montant:.2f} DT")
-            
-            # Traiter le paiement en espèces
-            if traiter_paiement_especes(plaque, duree_minutes, montant):
-                print("✅ Paiement effectué avec succès")
-            else:
-                print("❌ Échec du paiement")
-        
-        print(f"\nSortie terminée pour le véhicule {plaque}")
-    else:
-        print("\nAucun véhicule en stationnement trouvé")
+        cursor = conn.cursor(dictionary=True)  # Utiliser `dictionary=True` pour obtenir des résultats sous forme de dictionnaire
 
-def surveiller_clavier():
-    print("\nAppuyez sur 'S' pour simuler une sortie de véhicule...")
-    while True:
-        try:
-            if keyboard.is_pressed('s'):
-                print("\nDétection de sortie...")
-                traiter_sortie()
-                time.sleep(1)  # Éviter les détections multiples
-        except Exception as e:
-            print(f"Erreur lors de la détection: {str(e)}")
-            time.sleep(1)
+        # Rechercher le dernier véhicule en stationnement
+        cursor.execute('''
+        SELECT id, plaque, place, temps_entree 
+        FROM vehicules_en_stationnement 
+        WHERE status = 'en_stationnement'
+        ORDER BY temps_entree DESC
+        LIMIT 1
+        ''')
+
+        vehicule = cursor.fetchone()
+
+        if vehicule:
+            vehicule_id = vehicule['id']
+            plaque = vehicule['plaque']
+            place = vehicule['place']
+            temps_entree = vehicule['temps_entree']
+
+            print(f"\nTraitement de la sortie pour le véhicule :")
+            print(f"ID : {vehicule_id}")
+            print(f"Plaque : {plaque}")
+            print(f"Place : {place}")
+            print(f"Heure d'entrée : {temps_entree}")
+
+            # Convertir `temps_entree` en objet datetime
+            temps_entree = datetime.strptime(temps_entree, '%Y-%m-%d %H:%M:%S')
+
+            # Enregistrer la sortie
+            duree_minutes, montant = enregistrer_sortie(
+                vehicule_id, plaque, place, temps_entree
+            )
+
+            print(f"\nSortie enregistrée :")
+            print(f"Heure de sortie : {datetime.now()}")
+            print(f"Durée : {duree_minutes:.1f} minutes")
+            print(f"Montant : {montant:.2f} DT")
+
+            # Si le stationnement est payant (> 1 minute)
+            if duree_minutes > 1:
+                print(f"\nTraitement du paiement :")
+                print(f"Plaque : {plaque}")
+                print(f"Durée : {duree_minutes:.1f} minutes")
+                print(f"Montant dû : {montant:.2f} DT")
+
+                # Traiter le paiement en espèces
+                if traiter_paiement_especes(plaque, duree_minutes, montant):
+                    print("✅ Paiement effectué avec succès")
+                else:
+                    print("❌ Échec du paiement")
+
+            print(f"\nSortie terminée pour le véhicule {plaque}")
+        else:
+            print("\nAucun véhicule en stationnement trouvé")
+
+    except mysql.connector.Error as e:
+        print(f"Erreur lors de la connexion ou de l'exécution SQL : {str(e)}")
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+        if 'conn' in locals() and conn.is_connected():
+            conn.close()
+
+def surveiller_sorties_directement():
+    print("\nSurveillance des sorties activée...")
+    try:
+        print("\nDétection de sortie...")
+        traiter_sortie()
+    except Exception as e:
+        print(f"Erreur lors de la détection : {str(e)}")
 
 def surveiller_sorties():
     print("=== Système de surveillance des sorties ===")
-    print("Instructions:")
-    print("1. Attendez qu'un véhicule soit enregistré à l'entrée")
-    print("2. Appuyez sur 'S' pour simuler sa sortie")
-    print("3. La dashboard de sortie s'affichera automatiquement")
-    print("\nEn attente...")
-    
+    print("Traitement direct d'une sortie...")
     # Initialiser la base de données
     init_db()
     
-    # Démarrer la surveillance du clavier dans un thread séparé
-    thread_clavier = threading.Thread(target=surveiller_clavier)
-    thread_clavier.daemon = True
-    thread_clavier.start()
-    
-    # Maintenir le programme en cours d'exécution
+    # Traiter une seule sortie
     try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        print("\nArrêt du système de surveillance...")
+        traiter_sortie()  # Appeler directement la fonction pour traiter une sortie
+    except Exception as e:
+        print(f"Erreur lors du traitement de la sortie : {str(e)}")
+
+
 
 def generer_interface_paiement(plaque, temps_entree, temps_sortie, place, duree_minutes, montant):
     html = f"""

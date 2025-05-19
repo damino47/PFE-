@@ -9,6 +9,10 @@ import time
 from PIL import Image
 import mysql.connector
 import sys
+from admin.init_db import init_db
+
+# Définir le chemin absolu du répertoire du script
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Ajouter le répertoire parent au chemin de recherche Python
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -25,62 +29,36 @@ if not os.path.exists(IMAGES_DIR):
 
 # Initialisation de la base de données
 def get_db_connection():
-    return mysql.connector.connect(**DATABASE_CONFIG)
+    try:
+        conn = mysql.connector.connect(**DATABASE_CONFIG)
+        if conn.is_connected():
+            return conn
+        else:
+            print("Erreur : Impossible de se connecter à la base de données")
+            return None
+    except mysql.connector.Error as e:
+        print(f"Erreur de connexion à la base de données : {e}")
+        return None
 
 def init_db():
     conn = get_db_connection()
     cursor = conn.cursor()
     
     try:
-        # Création des tables si elles n'existent pas
-        # Table pour l'historique des stationnements
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS historique_stationnement (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            plaque VARCHAR(20) NOT NULL,
-            place VARCHAR(10) NOT NULL,
-            temps_entree DATETIME NOT NULL,
-            temps_sortie DATETIME,
-            duree_minutes FLOAT NOT NULL,
-            montant DECIMAL(10, 2) NOT NULL,
-            direction VARCHAR(20) NOT NULL,
-            status_paiement VARCHAR(20) DEFAULT 'en_attente',
-            INDEX (plaque),
-            INDEX (temps_entree)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        """)
-        
-        # Table pour les véhicules en stationnement
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS vehicules_en_stationnement (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            plaque VARCHAR(20) NOT NULL,
-            place VARCHAR(10) NOT NULL,
-            temps_entree DATETIME DEFAULT CURRENT_TIMESTAMP,
-            temps_sortie DATETIME NULL,
-            status VARCHAR(20) DEFAULT 'en_stationnement',
-            UNIQUE KEY (place)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        """)
-        
-        # Table pour les paiements
-        cursor.execute("""
-        CREATE TABLE IF NOT EXISTS paiements (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            historique_id INT,
-            montant_paye DECIMAL(10, 2) NOT NULL,
-            montant_change DECIMAL(10, 2) NOT NULL,
-            date_paiement DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (historique_id) REFERENCES historique_stationnement(id) ON DELETE SET NULL,
-            INDEX (date_paiement)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-        """)
-        
+        # Lire et exécuter le script SQL d'initialisation depuis le fichier init_db.sql
+        #sql_path = os.path.join(SCRIPT_DIR, 'admin', 'init_db.sql')
+        #with open(sql_path, 'r', encoding='utf-8') as f:
+            #sql_script = f.read()
+            #for statement in sql_script.split(';'):  # Diviser les instructions SQL par ';'
+                #if statement.strip():  # Ignorer les instructions vides
+                    #cursor.execute(statement)
+        init_db()
+        cursor.connect()
         conn.commit()
-        print("Base de données initialisée avec succès!")
+        print("Base de données initialisée avec succès à partir du fichier init_db.sql!")
         
     except Exception as e:
-        print(f"Erreur lors de l'initialisation de la base de données: {e}")
+        print(f"Erreur lors de l'initialisation de la base de données : {e}")
         conn.rollback()
     finally:
         cursor.close()
@@ -121,45 +99,51 @@ class PlateDetector:
         return regions
 
     def clean_text(self, text):
+        print(f"Texte brut avant nettoyage : '{text}'")
         text = re.sub(r'[^\d\s\u062a\u0648\u0646\u0633]', '', text)
         text = text.replace('تونن', 'تونس')
         text = ' '.join(text.split())
+        print(f"Texte après nettoyage : '{text}'")
         return text.strip()
 
     def validate_plate(self, text):
-        if not text or len(text) < 7:
+        if not text or len(text) < 5:  # Vérifier si le texte est trop court pour être une plaque valide
+            print(f"Validation échouée : Texte trop court ({text})")
             return False
-            
-        tunisia_variants = {
-            'تونس': 'تونس',
-            'تونن': 'تونس',
-            'توس': 'تونس',
-            'تونز': 'تونس',
-            'تونص': 'تونس',
-            'نونس': 'تونس'
-        }
-        
-        for variant in tunisia_variants:
-            if variant in text:
-                text = text.replace(variant, tunisia_variants[variant])
-                break
-        else:
+
+        # Remplacer tout mot en arabe par 'تونس'
+        arabic_word_pattern = re.compile(r'[\u0600-\u06FF]+')  # Correspond à tout mot en arabe
+        text = arabic_word_pattern.sub('تونس', text)
+
+        # Vérifier si le texte contient 'تونس'
+        if 'تونس' not in text:
+            print(f"Validation échouée : 'تونس' non trouvé dans ({text})")
             return False
-            
-        numbers = ''.join(filter(str.isdigit, text))
-        if len(numbers) != 7:
-            return False
-            
+
+        # Diviser le texte en deux parties autour de 'تونس'
         parts = text.split('تونس')
         if len(parts) != 2:
+            print(f"Validation échouée : Texte mal formé autour de 'تونس' ({text})")
             return False
-            
+
+        # Extraire les chiffres avant et après 'تونس'
+        print(f"Partie avant 'تونس' brute : {parts[0]}")
         before_numbers = ''.join(filter(str.isdigit, parts[0]))
+        print(f"Chiffres extraits avant 'تونس' : {before_numbers}")
+
+        print(f"Partie après 'تونس' brute : {parts[1]}")
         after_numbers = ''.join(filter(str.isdigit, parts[1]))
-        
-        if len(before_numbers) != 4 or len(after_numbers) != 3:
+        print(f"Chiffres extraits après 'تونس' : {after_numbers}")
+
+
+        # Vérifier les longueurs des parties numériques
+        if not (1 <= len(before_numbers) <= 4):  # La première partie doit contenir entre 1 et 3 chiffres
+            print(f"Validation échouée : Partie avant 'تونس' invalide ({before_numbers})")
             return False
-            
+        if not (1 <= len(after_numbers) <= 3):  # La deuxième partie doit contenir entre 1 et 4 chiffres
+            print(f"Validation échouée : Partie après 'تونس' invalide ({after_numbers})")
+            return False
+
         return True
 
     def detect_plate(self, image_path):
@@ -219,6 +203,7 @@ class PlateDetector:
                 print(f"  Résultats EasyOCR bruts: {results}")
                 
                 for (bbox, text, conf) in results:
+                    print(f"Texte brut détecté : '{text}', Confiance : {conf:.2f}")
                     cleaned_text = self.clean_text(text)
                     print(f"  Texte détecté: '{text}' (nettoyé: '{cleaned_text}'), confiance: {conf:.2f}")
                     
@@ -246,270 +231,181 @@ class PlateDetector:
             import traceback
             traceback.print_exc()
             return None
-
 class ParkingManager:
     def __init__(self):
-        self.places = {
-            'P1': {'status': 'libre', 'description': 'Près de l\'entrée'},
-            'P2': {'status': 'libre', 'description': 'Zone centrale'},
-            'P3': {'status': 'libre', 'description': 'Accès facile'},
-            'P4': {'status': 'occupé', 'description': 'Zone couverte'},
-            'P5': {'status': 'occupé', 'description': 'Près de la sortie'},
-            'P6': {'status': 'occupé', 'description': 'Zone VIP'}
-        }
-        
-def get_available_place(self):
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(dictionary=True)
+        self.places = self.load_places_from_db()
 
-        cursor.execute("SELECT place FROM vehicules_en_stationnement WHERE status = 'en_stationnement'")
-        occupied = {row['place'] for row in cursor.fetchall()}
+    def load_places_from_db(self):
+        """Charge les places de parking depuis la base de données."""
+        try:
+            conn = get_db_connection()
+            if not conn:
+                print("Erreur : Connexion à la base de données échouée")
+                return {}
 
-        for place, info in self.places.items():
-            if place not in occupied:
-                return place, info['description']
+            cursor = conn.cursor(dictionary=True)
 
-        return None  # aucune place libre
-    except Exception as e:
-        print(f"Erreur en vérifiant les places : {e}")
-        return None
-    finally:
-        if cursor:
-            cursor.close()
-        if conn and conn.is_connected():
-            conn.close()
+            # Charger toutes les places depuis la base de données
+            cursor.execute("SELECT numero, occupied, last_update FROM places")
+            places = cursor.fetchall()
 
-def generer_dashboard_entree(plate, place, description, date_entree):
-    html = f"""
-    <!DOCTYPE html>
-    <html lang="fr">
-    <head>
-        <meta charset="UTF-8">
-        <title>Dashboard Entrée - Aéroport Tunis-Carthage</title>
-        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-        <meta http-equiv="refresh" content="5">
-        <style>
-            body {{
-                background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-                min-height: 100vh;
-                margin: 0;
-                padding: 0.5rem;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }}
-            .container {{
-                max-width: 1200px;  /* Réduit la largeur totale */
-                padding: 1rem;
-            }}
-            .display-4 {{
-                font-size: 2.5rem;  /* Réduit la taille de la police */
-                font-weight: 700;
-                color: #fff;
-                text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
-                margin: 0;
-                line-height: 1.2;
-            }}
-            .welcome-text {{
-                font-size: 1.8rem;  /* Réduit la taille de la police */
-                color: #fff;
-                margin: 0.5rem 0;
-                text-shadow: 1px 1px 2px rgba(0,0,0,0.4);
-            }}
-            .card {{
-                border: none;
-                border-radius: 10px;
-                box-shadow: 0 4px 8px rgba(0,0,0,0.15);
-                background: rgba(255, 255, 255, 0.9);
-                margin-bottom: 0.5rem;
-            }}
-            .card-title {{
-                font-size: 1.8rem;  /* Réduit la taille de la police */
-                color: #1e3c72;
-                font-weight: bold;
-            }}
-            .info-grid {{
-                display: grid;
-                grid-template-columns: repeat(2, 1fr);
-                gap: 1rem;
-            }}
-            .info-item {{
-                padding: 0.5rem;  /* Réduit le padding */
-            }}
-            .info-label {{
-                font-size: 1.2rem;  /* Réduit la taille de la police */
-                color: #1e3c72;
-                font-weight: bold;
-            }}
-            .info-value {{
-                font-size: 1.6rem;  /* Réduit la taille de la police */
-                color: #000;
-            }}
-            .status-section {{
-                margin-top: 1rem;
-            }}
-            .status-title {{
-                font-size: 1.8rem;
-                color: #1e3c72;
-                text-align: center;
-                font-weight: bold;
-            }}
-            .status-item {{
-                font-size: 1.4rem;  /* Réduit la taille de la police */
-                padding: 0.5rem;
-                margin-bottom: 0.3rem;
-                border-radius: 5px;
-                font-weight: 500;
-            }}
-            .status-available {{
-                background-color: #d4edda;
-                color: #155724;
-            }}
-            .status-occupied {{
-                background-color: #f8d7da;
-                color: #721c24;
-            }}
-            .airport-logo {{
-                height: 60px;  /* Réduit la taille du logo */
-                margin-bottom: 0.5rem;
-            }}
-            .footer {{
-                color: white;
-                font-size: 1rem;  /* Réduit la taille de la police */
-                margin-top: 0.5rem;
-                text-align: center;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="text-center mb-3">
-                <img src="OACA.jpg" alt="Logo" class="airport-logo">
-                <h1 class="display-4">Aéroport Tunis-Carthage</h1>
-                <h2 class="welcome-text">Bienvenue • مرحبا • Welcome</h2>
-            </div>
-            <div class="card shadow mb-2">
-                <div class="card-body p-3">
-                    <h3 class="card-title text-center">🆕 Nouveau Véhicule</h3>
-                    <div class="info-grid">
-                        <div class="info-item">
-                            <div>
-                                <div class="info-label">N° :</div>
-                                <div class="info-value">{plate}</div>
-                            </div>
-                            <div>
-                                <div class="info-label">Place :</div>
-                                <div class="info-value">{place}</div>
-                            </div>
-                        </div>
-                        <div class="info-item">
-                            <div>
-                                <div class="info-label">Heure :</div>
-                                <div class="info-value">{date_entree.strftime('%H:%M')}</div>
-                            </div>
-                            <div>
-                                <div class="info-label">Date :</div>
-                                <div class="info-value">{date_entree.strftime('%d/%m/%Y')}</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="card shadow">
-                <div class="card-body p-3">
-                    <div class="status-section">
-                        <h4 class="status-title">État du Parking</h4>
-                        <div class="status-item status-available">
-                            Places Disponibles : P1, P2, P3
-                        </div>
-                        <div class="status-item status-occupied">
-                            Places Occupées : P4, P5, P6
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <footer class="footer">
-                <p>OACA 2025</p>
-            </footer>
-        </div>
-    </body>
-    </html>
-    """
-    with open("dashboard_entree.html", "w", encoding="utf-8") as f:
-        f.write(html)
+            # Convertir les résultats en un dictionnaire
+            places_dict = {}
+            for place in places:
+                status = 'libre' if place['occupied'] == 0 else 'occupé'
+                places_dict[f"P{place['numero']}"] = {
+                    'status': status,
+                    'description': f"Dernière mise à jour : {place['last_update']}"
+                }
+            return places_dict
+        except Exception as e:
+            print(f"Erreur lors du chargement des places : {e}")
+            return {}
+        finally:
+            if cursor:
+                cursor.close()
+            if conn and conn.is_connected():
+                conn.close()
+    def get_available_place(self):
+        """Retourne la première place disponible."""
+        try:
+            print("Connexion à la base de données pour obtenir une place disponible...")
+            conn = get_db_connection()
+            if not conn:
+                print("Erreur : Connexion à la base de données échouée")
+                return None
+
+            cursor = conn.cursor(dictionary=True)
+
+            # Rechercher les places disponibles
+            query = "SELECT numero, last_update FROM places WHERE occupied = 0 ORDER BY numero ASC"
+            print(f"Exécution de la requête : {query}")
+            cursor.execute(query)
+            available_place = cursor.fetchone()  # Lire le premier résultat
+
+            # Consommer tous les résultats restants pour éviter l'erreur "Unread result found"
+            cursor.fetchall()
+
+            if available_place:
+                print(f"Place disponible trouvée : {available_place}")
+                return available_place['numero'], f"Dernière mise à jour : {available_place['last_update']}"
+
+            print("Aucune place disponible")
+            return None
+        except Exception as e:
+            print(f"Erreur en vérifiant les places : {e}")
+            raise  # Relancer l'exception pour la capturer dans `surveiller_entree`
+        finally:
+            if cursor:
+                print("Fermeture du curseur après la recherche de place disponible.")
+                cursor.close()
+            if conn and conn.is_connected():
+                print("Fermeture de la connexion à la base de données après la recherche de place disponible.")
+                conn.close()
     
-    os.startfile("dashboard_entree.html")
-
-def enregistrer_entree(plaque, place):
-    print(f"Tentative d'enregistrement - Plaque: {plaque}, Place: {place}")
-    conn = None
-    cursor = None
+        
+def generer_dashboard_entree(plaque, place, description, date_entree):
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        print("Début de la génération du dashboard d'entrée...")
+        # Chemin du fichier HTML existant
+        html_path = os.path.join(SCRIPT_DIR, 'dashboard_entree.html')
+        print(f"Chemin du fichier HTML : {html_path}")
         
-        # Vérifier si la place est déjà occupée
-        cursor.execute('SELECT * FROM vehicules_en_stationnement WHERE place = %s', (place,))
-        if cursor.fetchone():
-            print(f"La place {place} est déjà occupée.")
-            return False
-            
-        # Enregistrer l'entrée
-        cursor.execute('''
-            INSERT INTO vehicules_en_stationnement (plaque, place, status, temps_entree)
-            VALUES (%s, %s, 'en_stationnement', NOW())
-        ''', (plaque, place))
+        # Vérifier si le fichier existe
+        if not os.path.exists(html_path):
+            print(f"Erreur : Le fichier {html_path} n'existe pas.")
+            return
         
-        conn.commit()
-        print(f"Enregistrement réussi - Plaque: {plaque}, Place: {place}")
-        return True
-    except mysql.connector.Error as err:
-        print(f"Erreur MySQL lors de l'enregistrement: {err}")
-        if conn:
-            conn.rollback()
-        return False
+        # Lire le fichier HTML et remplacer les placeholders
+        with open(html_path, 'r', encoding='utf-8') as f:
+            html_content = f.read()
+        
+        html_content = html_content.replace('{{plaque}}', str(plaque))
+        html_content = html_content.replace('{{place}}', str(place))
+        html_content = html_content.replace('{{description}}', str(description))
+        html_content = html_content.replace('{{date_entree}}', date_entree.strftime('%d/%m/%Y %H:%M:%S'))
+        
+        # Sauvegarder le fichier temporaire
+        temp_html_path = os.path.join(SCRIPT_DIR, 'dashboard_entree_temp.html')
+        with open(temp_html_path, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+        
+        # Ouvrir le fichier HTML
+        os.startfile(temp_html_path)
+        print(f"Dashboard d'entrée affiché avec succès depuis {temp_html_path}")
     except Exception as e:
-        print(f"Erreur inattendue lors de l'enregistrement: {e}")
-        if conn:
-            conn.rollback()
-        return False
+        print(f"Erreur lors de l'affichage du dashboard d'entrée : {e}")
+        raise  # Relancer l'exception pour la capturer dans `surveiller_entree`
+
+
+def enregistrer_voiture(plaque, place):
+    try:
+        print("Connexion à la base de données pour enregistrer le véhicule...")
+        conn = get_db_connection()
+        if not conn:
+            print("Erreur : Connexion à la base de données échouée")
+            return
+
+        cursor = conn.cursor()
+        date_entree = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        query = """
+            INSERT INTO vehicules_en_stationnement (plaque, place, temps_entree)
+            VALUES (%s, %s, %s)
+        """
+        print(f"Exécution de la requête : {query} avec les paramètres ({plaque}, {place}, {date_entree})")
+        cursor.execute(query, (plaque, place, date_entree))
+        conn.commit()
+        print("Véhicule enregistré avec succès dans la base de données.")
+    except mysql.connector.Error as e:
+        print(f"Erreur lors de l'enregistrement du véhicule : {e}")
+        raise  # Relancer l'exception pour la capturer dans `surveiller_entree`
     finally:
         if cursor:
+            print("Fermeture du curseur après l'enregistrement du véhicule.")
             cursor.close()
         if conn and conn.is_connected():
+            print("Fermeture de la connexion à la base de données après l'enregistrement du véhicule.")
             conn.close()
+
+      
 
 def surveiller_entree():
     detector = PlateDetector()
     parking = ParkingManager()
     
-    while True:
-        try:
-            plaque = detector.detect_plate('voiture2.jpg')
-            if plaque:
-                place_info = parking.get_available_place()
-                if place_info:
-                    place, description = place_info
-                    date_entree = datetime.now()
-                    
-                    # Enregistrer dans la base de données
-                    enregistrer_entree(plaque, place)
-                    
-                    # Générer le dashboard
-                    generer_dashboard_entree(plaque, place, description, date_entree)
-                    
-                    print(f"Véhicule {plaque} enregistré à la place {place}")
-                else:
-                    print("Parking complet")
-            
-            # Attendre 5 secondes avant la prochaine détection
-            time.sleep(5)
-            
-        except Exception as e:
-            print(f"Erreur : {str(e)}")
-            time.sleep(5)
-
+    try:
+        print("Début de la détection de plaque...")
+        plaque = detector.detect_plate('voiture2.jpg')  # Détecter la plaque à partir de l'image
+        if plaque:
+            print(f"Plaque détectée : {plaque}")
+            place_info = parking.get_available_place()  # Obtenir une place disponible
+            if place_info:
+                place, description = place_info
+                date_entree = datetime.now()
+                print(f"Place disponible : {place}, Description : {description}, Date d'entrée : {date_entree}")
+                
+                # Enregistrer dans la base de données
+                print("Tentative d'enregistrement du véhicule dans la base de données...")
+                enregistrer_voiture(plaque, place)
+                print("Véhicule enregistré avec succès dans la base de données.")
+                
+                
+                # Générer le dashboard
+                print("Tentative de génération du dashboard...")
+                generer_dashboard_entree(plaque, place, description, date_entree)
+                print("Dashboard généré avec succès.")
+                
+                print(f"Véhicule {plaque} enregistré à la place {place}")
+            else:
+                print("Parking complet")
+        else:
+            print("Aucune plaque détectée")
+    except Exception as e:
+        print(f"Erreur : {str(e)}")
+    finally:
+        print("Fin de la détection de plaque.")
+  
 if __name__ == "__main__":
     init_db()  # Initialiser la base de données
-    surveiller_entree() 
+    surveiller_entree()
