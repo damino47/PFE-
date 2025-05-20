@@ -60,7 +60,7 @@ def update_payment_status(vehicle_id):
             conn.close()
 
 
-def generer_dashboard_paiement(plaque, place, description, date_entree, montant):
+def generer_dashboard_paiement(plaque, place, description, temps_entree, temps_sortie, montant):
     try:
         print("Début de la génération du dashboard de paiement...")
         # Chemin du fichier HTML existant
@@ -80,8 +80,10 @@ def generer_dashboard_paiement(plaque, place, description, date_entree, montant)
         html_content = html_content.replace('{{plaque}}', str(plaque))
         html_content = html_content.replace('{{place}}', str(place))
         html_content = html_content.replace('{{description}}', str(description))
-        html_content = html_content.replace('{{date_entree}}', date_entree.strftime('%d/%m/%Y %H:%M:%S'))
-        html_content = html_content.replace('{{montant}}', f"{montant:.2f} DT")
+        html_content = html_content.replace('{{temps_entree}}', temps_entree.strftime('%d/%m/%Y %H:%M:%S'))
+        html_content = html_content.replace('{{temps_sortie}}', temps_sortie.strftime('%d/%m/%Y %H:%M:%S'))
+        html_content = html_content.replace('{{duree}}', str(0))  # Placeholder pour la durée
+        html_content = html_content.replace('{{montant}}', str(montant) )
         
         # Sauvegarder le fichier temporaire
         temp_html_path = os.path.join(SCRIPT_DIR, 'dashboard_paiement.html')
@@ -116,15 +118,15 @@ query = '''
 '''
 
 # Constantes pour les champs de la table historique_stationnement
-plaque = 'plaque'
-place = 'place'
-temps_entree = 'temps_entree'
-temps_sortie = 'temps_sortie'
-duree_minutes = 'duree_minutes'
-montant = 'montant'
+plaque = ''
+place = ''
+temps_entree = ''
+temps_sortie = ''
+duree_minutes = ''
+montant = 0
 
 # Exemple d'ID pour récupérer les données
-vehicle_id = 1
+vehicle_id = 37
 
 cursor = conn.cursor(dictionary=True)
 cursor.execute(query, (vehicle_id,))
@@ -136,16 +138,18 @@ if data:
     data['temps_entree'] = data['temps_entree'].strftime('%d/%m/%Y %H:%M:%S') if data['temps_entree'] else 'N/A'
     data['temps_sortie'] = data['temps_sortie'].strftime('%d/%m/%Y %H:%M:%S') if data['temps_sortie'] else 'N/A'
     data['duree_minutes'] = f"{data['duree_minutes']:.1f}" if data['duree_minutes'] else 'N/A'
-    data['montant'] = f"{data['montant']:.2f}" if data['montant'] else 'N/A'
-
+    data['montant'] = f"{data['montant']:.1f}" if data['montant'] else 'N/A'
     # Appeler la fonction pour générer le tableau de bord
     generer_dashboard_paiement(
         plaque=data['plaque'],
         place=data['place'],
         description="Description de la place",
-        date_entree=datetime.strptime(data['temps_entree'], '%d/%m/%Y %H:%M:%S'),
-        montant=float(data['montant'])
+        temps_entree=datetime.strptime(data['temps_entree'], '%d/%m/%Y %H:%M:%S'),
+        temps_sortie=datetime.strptime(data['temps_sortie'], '%d/%m/%Y %H:%M:%S'),
+        montant=data['montant']
+
     )
+    
 
 
     # Mettre à jour le statut de paiement

@@ -359,7 +359,7 @@ def generer_dashboard_entree(plaque, place, description, date_entree):
         
         # Ajouter le préfixe "P" à la place
         html_content = html_content.replace('{{plaque}}', str(plaque))
-        html_content = html_content.replace('{{place}}', f"P{place}")
+        html_content = html_content.replace('{{place}}', f"{place}")
         html_content = html_content.replace('{{description}}', str(description))
         html_content = html_content.replace('{{date_entree}}', date_entree.strftime('%d/%m/%Y %H:%M:%S'))
         

@@ -248,13 +248,19 @@ class ParkingManager:
     def __init__(self):
         self.places = self.load_places_from_db()
     
-    def liberer_place(self, numero):
+    def update_place_status(self, numero, occupied):
         """
-        Libère une place de parking dans la base de données.
+        Met à jour le statut d'une place de parking dans la base de données.
         :param numero: Numéro de la place (int)
+        :param occupied: 1 si occupée, 0 si libre (int)
         """
         try:
-            print(f"Mise à jour du statut de la place {numero} à libre...")
+            #Retirer le préfixe "P" si présent
+            if isinstance(numero, str) and numero.startswith("P"):
+                numero = int(numero[1:])
+
+
+            print(f"Mise à jour du statut de la place {numero} à {'occupé' if occupied else 'libre'}...")
             conn = get_db_connection()
             if not conn:
                 print("Erreur : Connexion à la base de données échouée")
@@ -263,12 +269,12 @@ class ParkingManager:
             cursor = conn.cursor()
             query = """
                 UPDATE places
-                SET occupied = 0, last_update = NOW()
+                SET occupied = %s, last_update = NOW()
                 WHERE numero = %s
             """
-            cursor.execute(query, (numero,))
+            cursor.execute(query, (occupied, numero))
             conn.commit()
-            print(f"Statut de la place {numero} mis à jour avec succès (libre).")
+            print(f"Statut de la place {numero} mis à jour avec succès.")
             return True
         except Exception as e:
             print(f"Erreur lors de la mise à jour du statut de la place : {e}")
@@ -406,7 +412,9 @@ def traiter_sortie():
 
             # Libérer la place
             parking_manager = ParkingManager()
-            if parking_manager.liberer_place(place):
+            libre = parking_manager.update_place_status(place, 0)
+            print("libre,", libre)
+            if libre:
                 print(f"La place {place} a été libérée avec succès.")
             else:
                 print(f"Échec de la libération de la place {place}.")
